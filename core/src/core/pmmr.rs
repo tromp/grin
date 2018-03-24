@@ -24,11 +24,8 @@
 //! we start with the standard height sequence in a MMR: 0010012001... This is
 //! in fact identical to the postorder traversal (left-right-top) of a binary
 //! tree. In addition postorder traversal is independent of the height of the
-//! tree. This allows us, with a few primitive, to get the height of any node
-//! in the MMR from its position in the sequence, as well as calculate the
-//! position of siblings, parents, etc. As all those functions only rely on
-//! binary operations, they're extremely fast. For more information, see the
-//! doc on bintree_jump_left_sibling.
+//! tree. This allows us, with a few primitive, to get the path to and height
+//! of any node in the MMR from its position in the sequence.
 //! 2. The implementation of a prunable MMR tree using the above. Each leaf
 //! is required to be Writeable (which implements Hashed). Tree roots can be
 //! trivially and efficiently calculated without materializing the full tree.
@@ -90,43 +87,68 @@ where
 	fn dump_stats(&self);
 }
 
-/// Maixmum peaks for a Merkle proof
-pub const MAX_PEAKS: u64 = 100;
-
-/// Maixmum path for a Merkle proof
-pub const MAX_PATH: u64 = 100;
+/// Possible errors deriving from merkelizing
+/// #[derive(Debug)]
+/// pub enum Error {
+/// 	/// Things that should never happen
+/// 	InvariantFailure
+/// }
 
 /// A Merkle proof.
-/// Proves inclusion of an output (node) in the output MMR.
-/// We can use this to prove an output was unspent at the time of a given block
-/// as the root will match the output_root of the block header.
-/// The path and left_right can be used to reconstruct the peak hash for a given tree
-/// in the MMR.
-/// The root is the result of hashing all the peaks together.
+/// Proves inclusion of a leaf node under a peak node in an MMR.
+/// Inclusion of the peak hash under a Merkle root is done separately,
+/// as that part changes wtih every additional block.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct MerkleProof {
-	/// The root hash of the full Merkle tree (in an MMR the hash of all peaks)
-	pub root: Hash,
-	/// The hash of the element in the tree we care about
+	/// The peak index i for 2^{i+1}-1 sized peaks
+	pub pidx: u64,
+	/// The position of the element in the MMR
+	pub pos: u64,
+	/// The hash of the element
 	pub node: Hash,
-	/// The full list of peak hashes in the MMR
-	pub peaks: Vec<Hash>,
-	/// The sibling (hash, pos) along the path of the tree
+	/// The sibling hashes along the path of the tree
 	/// as we traverse from node to peak
-	pub path: Vec<(Hash, u64)>,
+	pub path: Vec<Hash>,
+}
+
+pub fn peak_size(pidx: u64) -> u64 {
+	(2 << pidx) - 1
+}
+
+// return (peak_map, peak_map_size, pos_height) of given node pos prior to its addition
+// Example: on input 4 returns (0b11, 2, 0) as mmr state before adding 4 was
+//    2
+//   / \
+//  0   1  3
+// returns (0, 0, 0) on input 0
+pub fn peak_map_size_height(mut pos: u64) -> (u64, u64, u64) {
+        let mut peak_size = 1;
+        let mut map_size  = 0;
+	while peak_size <= pos {
+		peak_size = peak_size << 1 | 1;
+                map_size += 1;
+	}
+	let mut bitmap = 0;
+	while peak_size > 0 {
+                bitmap = bitmap << 1;
+		if pos >= peak_size {
+			pos -= peak_size;
+			bitmap |= 1;
+		}
+		peak_size >>= 1;
+	}
+        (bitmap, map_size, pos)
 }
 
 impl Writeable for MerkleProof {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), ser::Error> {
 		ser_multiwrite!(
 			writer,
-			[write_fixed_bytes, &self.root],
-			[write_fixed_bytes, &self.node],
-			[write_u64, self.peaks.len() as u64],
-			[write_u64, self.path.len() as u64]
+			[write_u64, self.pidx],
+			[write_u64, self.pos],
+			[write_fixed_bytes, &self.node]
 		);
 
-		try!(self.peaks.write(writer));
 		try!(self.path.write(writer));
 
 		Ok(())
@@ -135,31 +157,26 @@ impl Writeable for MerkleProof {
 
 impl Readable for MerkleProof {
 	fn read(reader: &mut Reader) -> Result<MerkleProof, ser::Error> {
-		let root = Hash::read(reader)?;
-		let node = Hash::read(reader)?;
+		let (pidx, pos) = ser_multiread!(reader, read_u64, read_u64);
+		let size = peak_size(pidx);
 
-		let (peaks_len, path_len) = ser_multiread!(reader, read_u64, read_u64);
-
-		if peaks_len > MAX_PEAKS || path_len > MAX_PATH {
+		if pidx >= 64 || pos >= size {
 			return Err(ser::Error::CorruptedData);
 		}
 
-		let mut peaks = Vec::with_capacity(peaks_len as usize);
-		for _ in 0..peaks_len {
-			peaks.push(Hash::read(reader)?);
-		}
+		let node = Hash::read(reader)?;
 
-		let mut path = Vec::with_capacity(path_len as usize);
-		for _ in 0..path_len {
+		let mut path = Vec::with_capacity(pidx as usize);
+		for _ in 0..pidx {
 			let hash = Hash::read(reader)?;
 			let pos = reader.read_u64()?;
 			path.push((hash, pos));
 		}
 
 		Ok(MerkleProof {
-			root,
+			pidx,
+			pos,
 			node,
-			peaks,
 			path,
 		})
 	}
