@@ -51,6 +51,37 @@ use core::core::amount_to_hr_string;
 use util::{init_logger, LoggingConfig, LOGGER};
 use tui::ui;
 
+// include build information
+pub mod built_info {
+	include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
+pub fn info_strings() -> (String, String, String) {
+	(
+		format!(
+			"This is Grin version {}{}, built for {} by {}.",
+			built_info::PKG_VERSION,
+			built_info::GIT_VERSION.map_or_else(|| "".to_owned(), |v| format!(" (git {})", v)),
+			built_info::TARGET,
+			built_info::RUSTC_VERSION
+		).to_string(),
+		format!(
+			"Built with profile \"{}\", features \"{}\" on {}.",
+			built_info::PROFILE,
+			built_info::FEATURES_STR,
+			built_info::BUILT_TIME_UTC
+		).to_string(),
+		format!("Dependencies:\n {}", built_info::DEPENDENCIES_STR).to_string(),
+	)
+}
+
+fn log_build_info() {
+	let (basic_info, detailed_info, deps) = info_strings();
+	info!(LOGGER, "{}", basic_info);
+	debug!(LOGGER, "{}", detailed_info);
+	trace!(LOGGER, "{}", deps);
+}
+
 /// wrap below to allow UI to clean up on stop
 fn start_server(config: grin::ServerConfig) {
 	start_server_tui(config);
@@ -251,7 +282,11 @@ fn main() {
 			.about("basic wallet contents summary"))
 
 		.subcommand(SubCommand::with_name("init")
-			.about("Initialize a new wallet seed file.")))
+			.about("Initialize a new wallet seed file."))
+
+		.subcommand(SubCommand::with_name("restore")
+			.about("Attempt to restore wallet contents from the chain using seed and password. \
+				NOTE: Backup wallet.* and run `wallet listen` before running restore.")))
 
 	.get_matches();
 
@@ -296,6 +331,8 @@ fn main() {
 	} else {
 		init_logger(Some(LoggingConfig::default()));
 	}
+
+	log_build_info();
 
 	match args.subcommand() {
 		// server commands and options
@@ -490,6 +527,12 @@ fn wallet_command(wallet_args: &ArgMatches, global_config: GlobalConfig) {
 		wallet_config.check_node_api_http_addr = sa.to_string().clone();
 	}
 
+	let key_derivations: u32 = wallet_args
+		.value_of("key_derivations")
+		.unwrap()
+		.parse()
+		.unwrap();
+
 	let mut show_spent = false;
 	if wallet_args.is_present("show_spent") {
 		show_spent = true;
@@ -610,6 +653,9 @@ fn wallet_command(wallet_args: &ArgMatches, global_config: GlobalConfig) {
 		}
 		("outputs", Some(_)) => {
 			wallet::show_outputs(&wallet_config, &keychain, show_spent);
+		}
+		("restore", Some(_)) => {
+			let _ = wallet::restore(&wallet_config, &keychain, key_derivations);
 		}
 		_ => panic!("Unknown wallet command, use 'grin help wallet' for details"),
 	}
