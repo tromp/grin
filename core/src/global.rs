@@ -57,17 +57,8 @@ pub const TESTING_CUT_THROUGH_HORIZON: u32 = 20;
 /// Testing initial block difficulty
 pub const TESTING_INITIAL_DIFFICULTY: u64 = 1;
 
-/// Testing initial block difficulty, testnet 2
-/// we want to overestimate here as well
-/// Setting to 1 for development, but should be 1000 at T2 launch
-pub const TESTNET2_INITIAL_DIFFICULTY: u64 = 1;
-
-/// The target is the 32-bytes hash block hashes must be lower than.
-pub const MAX_PROOF_TARGET: [u8; 8] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
-
-/// We want to slow this right down for user testing at cuckoo 16, so pick a
-/// smaller max
-pub const MAX_PROOF_TARGET_TESTING: [u8; 8] = [0x05, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+/// Testnet 2 initial block difficulty, high to see how it goes
+pub const TESTNET2_INITIAL_DIFFICULTY: u64 = 1000;
 
 /// Types of chain a server can run with, dictates the genesis block and
 /// and mining parameters used.
@@ -140,18 +131,6 @@ pub fn coinbase_maturity() -> u64 {
 		ChainTypes::Testnet1 => COINBASE_MATURITY,
 		ChainTypes::Testnet2 => COINBASE_MATURITY,
 		ChainTypes::Mainnet => COINBASE_MATURITY,
-	}
-}
-
-/// Max Proof Target
-pub fn max_proof_target() -> [u8; 8] {
-	let param_ref = CHAIN_TYPE.read().unwrap();
-	match *param_ref {
-		ChainTypes::AutomatedTesting => MAX_PROOF_TARGET_TESTING,
-		ChainTypes::UserTesting => MAX_PROOF_TARGET_TESTING,
-		ChainTypes::Testnet1 => MAX_PROOF_TARGET_TESTING,
-		ChainTypes::Testnet2 => MAX_PROOF_TARGET,
-		ChainTypes::Mainnet => MAX_PROOF_TARGET,
 	}
 }
 

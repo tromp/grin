@@ -41,6 +41,19 @@ impl MessageHandler for Protocol {
 	fn consume<'a>(&self, mut msg: Message<'a>) -> Result<Option<Response<'a>>, Error> {
 		let adapter = &self.adapter;
 
+		// If we received a msg from a banned peer then log and drop it.
+		// If we are getting a lot of these then maybe we are not cleaning
+		// banned peers up correctly?
+		if adapter.is_banned(self.addr.clone()) {
+			debug!(
+				LOGGER,
+				"handler: consume: peer {:?} banned, received: {:?}, dropping.",
+				self.addr,
+				msg.header.msg_type,
+			);
+			return Ok(None);
+		}
+
 		match msg.header.msg_type {
 			Type::Ping => {
 				let ping: Ping = msg.body()?;
@@ -75,7 +88,7 @@ impl MessageHandler for Protocol {
 
 			Type::GetBlock => {
 				let h: Hash = msg.body()?;
-				debug!(LOGGER, "handle_payload: GetBlock {}", h);
+				trace!(LOGGER, "handle_payload: GetBlock {}", h);
 
 				let bo = adapter.get_block(h);
 				if let Some(b) = bo {
@@ -88,7 +101,7 @@ impl MessageHandler for Protocol {
 				let b: core::Block = msg.body()?;
 				let bh = b.hash();
 
-				debug!(LOGGER, "handle_payload: Block {}", bh);
+				trace!(LOGGER, "handle_payload: Block {}", bh);
 
 				adapter.block_received(b, self.addr);
 				Ok(None)

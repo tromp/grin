@@ -176,7 +176,7 @@ impl Chain {
 		let head = match head {
 			Ok(h) => h,
 			Err(NotFoundErr) => {
-				let tip = Tip::new(genesis.hash());
+				let tip = Tip::from_block(&genesis.header);
 				store.save_block(&genesis)?;
 				store.setup_height(&genesis.header, &tip)?;
 				if genesis.kernels.len() > 0 {
@@ -204,7 +204,13 @@ impl Chain {
 		// Make sure sync_head is available for later use when needed.
 		store.reset_head()?;
 
-		debug!(LOGGER, "Chain init: {:?}", head);
+		debug!(
+			LOGGER,
+			"Chain init: {} @ {} [{}]",
+			head.total_difficulty.into_num(),
+			head.height,
+			head.last_block_h
+		);
 
 		Ok(Chain {
 			db_root: db_root,
@@ -333,11 +339,7 @@ impl Chain {
 	}
 
 	/// Process a block header received during "header first" propagation.
-	pub fn process_block_header(
-		&self,
-		bh: &BlockHeader,
-		opts: Options,
-	) -> Result<Option<Tip>, Error> {
+	pub fn process_block_header(&self, bh: &BlockHeader, opts: Options) -> Result<(), Error> {
 		let header_head = self.get_header_head()?;
 		let ctx = self.ctx_from_head(header_head, opts);
 		pipe::process_block_header(bh, ctx)
@@ -370,7 +372,7 @@ impl Chain {
 
 	/// Check for orphans, once a block is successfully added
 	pub fn check_orphans(&self, mut last_block_hash: Hash) {
-		debug!(
+		trace!(
 			LOGGER,
 			"chain: check_orphans: # orphans {}",
 			self.orphans.len(),
@@ -531,11 +533,18 @@ impl Chain {
 		self.store
 			.save_block_marker(&h, &(rewind_to_output, rewind_to_kernel))?;
 
+		debug!(
+			LOGGER,
+			"Going to validate new txhashset, might take some time..."
+		);
 		let mut txhashset =
 			txhashset::TxHashSet::open(self.db_root.clone(), self.store.clone(), None)?;
 		txhashset::extending(&mut txhashset, |extension| {
 			extension.validate(&header, false)?;
-			// TODO validate kernels and their sums with Outputs
+
+			// validate rewinds and rollbacks, in this specific case we want to
+			// apply the rewind
+			extension.cancel_rollback();
 			extension.rebuild_index()?;
 			Ok(())
 		})?;

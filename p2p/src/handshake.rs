@@ -98,6 +98,7 @@ impl Handshake {
 			addr: peer_addr,
 			version: shake.version,
 			total_difficulty: shake.total_difficulty,
+			height: 0,
 			direction: Direction::Outbound,
 		};
 
@@ -153,6 +154,7 @@ impl Handshake {
 			addr: extract_ip(&hand.sender_addr.0, &conn),
 			version: hand.version,
 			total_difficulty: hand.total_difficulty,
+			height: 0,
 			direction: Direction::Inbound,
 		};
 
@@ -174,7 +176,7 @@ impl Handshake {
 		};
 
 		write_message(conn, shake, Type::Shake)?;
-		debug!(LOGGER, "Success handshake with {}.", peer_info.addr);
+		trace!(LOGGER, "Success handshake with {}.", peer_info.addr);
 
 		// when more than one protocol version is supported, choosing should go here
 		Ok(peer_info)

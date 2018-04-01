@@ -97,7 +97,7 @@ pub fn process_block(b: &Block, mut ctx: BlockContext) -> Result<Option<Tip>, Er
 	// internal validation and saving operations
 	let result = txhashset::extending(&mut txhashset, |mut extension| {
 		validate_block(b, &mut ctx, &mut extension)?;
-		debug!(
+		trace!(
 			LOGGER,
 			"pipe: process_block: {} at {} is valid, save and append.",
 			b.hash(),
@@ -164,28 +164,18 @@ pub fn sync_block_header(
 }
 
 /// Process block header as part of "header first" block propagation.
-pub fn process_block_header(bh: &BlockHeader, mut ctx: BlockContext) -> Result<Option<Tip>, Error> {
+/// We validate the header but we do not store it or update header head based on this.
+/// We will update these once we get the block back after requesting it.
+pub fn process_block_header(bh: &BlockHeader, mut ctx: BlockContext) -> Result<(), Error> {
 	debug!(
 		LOGGER,
-		"pipe: process_block_header: {} at {}",
-		bh.hash(),
-		bh.height
-	);
+		"pipe: process_block_header at {} [{}]",
+		bh.height,
+		bh.hash()
+	); // keep this
 
 	check_header_known(bh.hash(), &mut ctx)?;
-	validate_header(&bh, &mut ctx)?;
-
-	debug!(
-		LOGGER,
-		"pipe: process_block_header: {} at {} is valid, saving.",
-		bh.hash(),
-		bh.height,
-	);
-
-	add_block_header(bh, &mut ctx)?;
-
-	// now update the header_head (if new header with most work)
-	update_header_head(bh, &mut ctx)
+	validate_header(&bh, &mut ctx)
 }
 
 /// Quick in-memory check to fast-reject any block header we've already handled
@@ -237,8 +227,10 @@ fn validate_header(header: &BlockHeader, ctx: &mut BlockContext) -> Result<(), E
 		return Err(Error::InvalidBlockVersion(header.version));
 	}
 
+	// TODO: remove CI check from here somehow
 	if header.timestamp
 		> time::now_utc() + time::Duration::seconds(12 * (consensus::BLOCK_TIME_SEC as i64))
+		&& !global::is_automated_testing_mode()
 	{
 		// refuse blocks more than 12 blocks intervals in future (as in bitcoin)
 		// TODO add warning in p2p code if local time is too different from peers
@@ -513,7 +505,7 @@ pub fn rewind_and_apply_fork(
 		if let Ok(_) = store.is_on_current_chain(&curr_header) {
 			break;
 		} else {
-			hashes.insert(0, curr_header.hash());
+			hashes.insert(0, (curr_header.height, curr_header.hash()));
 			current = curr_header.previous;
 		}
 	}
@@ -522,16 +514,23 @@ pub fn rewind_and_apply_fork(
 
 	debug!(
 		LOGGER,
-		"rewind_and_apply_fork @ {} [{}]",
+		"rewind_and_apply_fork @ {} [{}], was @ {} [{}]",
 		forked_block.height,
 		forked_block.hash(),
+		b.header.height,
+		b.header.hash()
 	);
 
 	// rewind the sum trees up to the forking block
 	ext.rewind(&forked_block)?;
 
+	debug!(
+		LOGGER,
+		"rewind_and_apply_fork: blocks on fork: {:?}", hashes
+	);
+
 	// apply all forked blocks, including this new one
-	for h in hashes {
+	for (_, h) in hashes {
 		let fb = store
 			.get_block(&h)
 			.map_err(|e| Error::StoreErr(e, format!("getting forked blocks")))?;

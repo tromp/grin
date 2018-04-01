@@ -100,6 +100,7 @@ impl Server {
 		let genesis = match config.chain_type {
 			global::ChainTypes::Testnet1 => genesis::genesis_testnet1(),
 			global::ChainTypes::Testnet2 => genesis::genesis_testnet2(),
+			global::ChainTypes::AutomatedTesting => genesis::genesis_dev(),
 			_ => pow::mine_genesis_block(config.mining_config.clone())?,
 		};
 		info!(LOGGER, "Starting server, genesis block: {}", genesis.hash(),);
@@ -177,7 +178,7 @@ impl Server {
 			p2p_server.peers.clone(),
 			shared_chain.clone(),
 			skip_sync_wait,
-			!archive_mode,
+			archive_mode,
 			stop.clone(),
 		);
 
@@ -305,12 +306,10 @@ impl Server {
 					let (time, diff) = n.clone().unwrap();
 					let dur = time - last_time;
 					let height = earliest_block_height + i + 1;
-					let index = tip_height - height;
 					i += 1;
 					last_time = time;
 					DiffBlock {
 						block_number: height,
-						block_index: index,
 						difficulty: diff.into_num(),
 						time: time,
 						duration: dur,
@@ -323,8 +322,8 @@ impl Server {
 			DiffStats {
 				height: tip_height as u64,
 				last_blocks: diff_entries,
-				average_block_time: block_time_sum / consensus::DIFFICULTY_ADJUST_WINDOW,
-				average_difficulty: block_diff_sum / consensus::DIFFICULTY_ADJUST_WINDOW,
+				average_block_time: block_time_sum / (consensus::DIFFICULTY_ADJUST_WINDOW - 1),
+				average_difficulty: block_diff_sum / (consensus::DIFFICULTY_ADJUST_WINDOW - 1),
 				window_size: consensus::DIFFICULTY_ADJUST_WINDOW,
 			}
 		};

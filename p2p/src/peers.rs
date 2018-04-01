@@ -280,10 +280,10 @@ impl Peers {
 		}
 		debug!(
 			LOGGER,
-			"broadcast_block: {}, {} at {}, to {} peers, done.",
-			b.hash(),
+			"broadcast_block: {} @ {} [{}] was sent to {} peers.",
 			b.header.total_difficulty,
 			b.header.height,
+			b.hash(),
 			count,
 		);
 	}
@@ -331,7 +331,7 @@ impl Peers {
 				}
 			}
 		}
-		debug!(
+		trace!(
 			LOGGER,
 			"broadcast_header: {}, {} at {}, to {} peers, done.",
 			bh.hash(),
@@ -594,13 +594,13 @@ impl NetAdapter for Peers {
 	/// addresses.
 	fn find_peer_addrs(&self, capab: Capabilities) -> Vec<SocketAddr> {
 		let peers = self.find_peers(State::Healthy, capab, MAX_PEER_ADDRS as usize);
-		debug!(LOGGER, "Got {} peer addrs to send.", peers.len());
+		trace!(LOGGER, "find_peer_addrs: {} healthy peers picked", peers.len());
 		map_vec!(peers, |p| p.addr)
 	}
 
 	/// A list of peers has been received from one of our peers.
 	fn peer_addrs_received(&self, peer_addrs: Vec<SocketAddr>) {
-		debug!(LOGGER, "Received {} peer addrs, saving.", peer_addrs.len());
+		trace!(LOGGER, "Received {} peer addrs, saving.", peer_addrs.len());
 		for pa in peer_addrs {
 			if let Ok(e) = self.exists_peer(pa) {
 				if e {
@@ -621,22 +621,33 @@ impl NetAdapter for Peers {
 	}
 
 	fn peer_difficulty(&self, addr: SocketAddr, diff: Difficulty, height: u64) {
-		debug!(
-			LOGGER,
-			"peer total_diff @ height (ping/pong): {}: {} @ {} \
-			 vs us: {} @ {}",
-			addr,
-			diff,
-			height,
-			self.total_difficulty(),
-			self.total_height()
-		);
+		if diff != self.total_difficulty() || height != self.total_height() {
+			debug!(
+				LOGGER,
+				"ping/pong: {}: {} @ {} vs us: {} @ {}",
+				addr,
+				diff,
+				height,
+				self.total_difficulty(),
+				self.total_height()
+			);
+		}
 
 		if diff.into_num() > 0 {
 			if let Some(peer) = self.get_connected_peer(&addr) {
 				let mut peer = peer.write().unwrap();
 				peer.info.total_difficulty = diff;
+				peer.info.height = height;
 			}
+		}
+	}
+
+	fn is_banned(&self, addr: SocketAddr) -> bool {
+		if let Some(peer) = self.get_connected_peer(&addr) {
+			let peer = peer.write().unwrap();
+			peer.is_banned()
+		} else {
+			false
 		}
 	}
 }

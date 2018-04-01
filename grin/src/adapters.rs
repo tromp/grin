@@ -401,10 +401,8 @@ impl NetToChainAdapter {
 			Err(chain::Error::Orphan) => {
 				// make sure we did not miss the parent block
 				if !chain.is_orphan(&prev_hash) && !self.currently_syncing.load(Ordering::Relaxed) {
-					if let Err(_) = chain.get_block_header(&prev_hash) {
-						debug!(LOGGER, "adapter: process_block: received an orphan block, checking the parent: {:}", prev_hash);
-						self.request_block_by_hash(prev_hash, &addr)
-					}
+					debug!(LOGGER, "adapter: process_block: received an orphan block, checking the parent: {:}", prev_hash);
+					self.request_block_by_hash(prev_hash, &addr)
 				}
 				true
 			}
@@ -544,6 +542,7 @@ impl ChainAdapter for ChainToPoolAndNetAdapter {
 		// If block contains txs then broadcast the compact block.
 		// If we received the block from another node then broadcast "header first"
 		// to minimize network traffic.
+
 		if opts.contains(Options::MINE) {
 			// propagate compact block out if we mined the block
 			// but broadcast full block if we have no txs
@@ -552,7 +551,6 @@ impl ChainAdapter for ChainToPoolAndNetAdapter {
 				// in the interest of testing all code paths
 				// randomly decide how we send an empty block out
 				// TODO - lock this down once we are comfortable it works...
-
 				let mut rng = rand::thread_rng();
 				if rng.gen() {
 					wo(&self.peers).broadcast_block(&b);
@@ -564,7 +562,16 @@ impl ChainAdapter for ChainToPoolAndNetAdapter {
 			}
 		} else {
 			// "header first" propagation if we are not the originator of this block
-			wo(&self.peers).broadcast_header(&b.header);
+			// again randomly chose between "header first" or "compact block" propagation
+			// to ensure we test a wide variety of code paths
+
+			let mut rng = rand::thread_rng();
+			if rng.gen() {
+				wo(&self.peers).broadcast_header(&b.header);
+			} else {
+				let cb = b.as_compact_block();
+				wo(&self.peers).broadcast_compact_block(&cb);
+			}
 		}
 	}
 }

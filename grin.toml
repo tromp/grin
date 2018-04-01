@@ -46,7 +46,7 @@ chain_type = "Testnet2"
 #want to run a full chain validation. Can be:
 #EveryBlock - run full chain validation when processing each block (except during sync)
 #Disabled - disable full chain validation (just run regular block validation)
-#chain_validation_mode=EveryBlock
+#chain_validation_mode=Disabled
 
 #run the node in "full archive" mode (default is fast-sync, pruned node)
 #archive_mode = false
@@ -78,16 +78,26 @@ port = 13414
 #will *never* connect to peers in deny list
 #peers_deny = ["192.168.0.3:13414", "192.168.0.4:13414"]
 
+#dandelion relay time
+#dandelion_relay_time = 600
+
+#how long a banned peer should stay banned
+#ban_window = 10800
+
+#maximum number of peers
+#peer_max_count = 25
+
+#preferred minimum number of peers (we'll actively keep trying to add peers
+#until we get to at least this number
+#peer_min_preferred_count = 8
+
 #########################################
 ### WALLET CONFIGURATION              ###
 #########################################
 
 [wallet]
 
-# Whether the wallet should be open to the outside
-external = false
-
-# Host IP for wallet listener
+# Host IP for wallet listener, change to "0.0.0.0" to receive grins
 api_listen_interface = "127.0.0.1"
 
 # Port for wallet listener
@@ -192,7 +202,7 @@ burn_reward = false
 #instead
 #[[mining.miner_plugin_config]]
 #type_filter = "mean_cpu"
-#[mining.cuckoo_miner_plugin_config.device_parameters.0]
+#[mining.miner_plugin_config.device_parameters.0]
 #NUM_THREADS = 1
 
 #As above, but for older processors
@@ -209,11 +219,17 @@ NUM_THREADS = 1
 #[mining.miner_plugin_config.device_parameters.0]
 #NUM_THREADS = 1
 
-#CUDA Miner (Included here for integration only, Not ready for use)
+#CUDA Miner
+#
+# Note! 4+ GB GPU cards only!
+#   If you have 6GB GPU RAM, set N_BLOCKS = 128
+#   Docs: https://github.com/tromp/cuckoo/blob/master/GPU.md
+#
 #Can currently be used only in Production (30) Mode
 #This plugin is not built by default. To build:
 #1) Ensure the latest cuda toolkit is installed
 #   (nvcc should be in your PATH)
+#   Wrong gcc? install gcc-5 g++-5; export CC=`which gcc-5`; # then build
 #2) Uncomment the 'build-cuda-plugin' feature
 #   in pow/Cargo.toml
 #
@@ -230,14 +246,14 @@ NUM_THREADS = 1
 
 # Below are advanced optional per-device tweakable params
 
-#N_TRIMS = 240
+#N_TRIMS = 256
 #N_BLOCKS = 128
 #GENU_BLOCKS = 128
 #GENU_TPB = 8
 #GENV_STAGE1_TPB = 32
 #GENV_STAGE2_TPB = 128
 #TRIM_STAGE1_TPB = 32
-#TRIM_STAGE2_TPB = 96
+#TRIM_STAGE2_TPB = 128
 #RENAME_0_STAGE1_TPB = 32
 #RENAME_0_STAGE2_TPB = 64
 #RENAME_1_STAGE1_TPB = 32

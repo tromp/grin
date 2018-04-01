@@ -33,7 +33,7 @@ use util::LOGGER;
 /// P2P server implementation, handling bootstrapping to find and connect to
 /// peers, receiving connections from other peers and keep track of all of them.
 pub struct Server {
-	config: P2PConfig,
+	pub config: P2PConfig,
 	capabilities: Capabilities,
 	handshake: Arc<Handshake>,
 	pub peers: Arc<Peers>,
@@ -130,7 +130,7 @@ impl Server {
 			return Ok(p);
 		}
 
-		debug!(LOGGER, "connect_peer: connecting to {}", addr);
+		trace!(LOGGER, "connect_peer: connecting to {}", addr);
 		match TcpStream::connect_timeout(addr, Duration::from_secs(10)) {
 			Ok(mut stream) => {
 				let addr = SocketAddr::new(self.config.host, self.config.port);
@@ -244,4 +244,7 @@ impl NetAdapter for DummyAdapter {
 	}
 	fn peer_addrs_received(&self, _: Vec<SocketAddr>) {}
 	fn peer_difficulty(&self, _: SocketAddr, _: Difficulty, _: u64) {}
+	fn is_banned(&self, _: SocketAddr) -> bool {
+		false
+	}
 }

@@ -146,7 +146,7 @@ impl TxHashSet {
 				let output_pmmr: PMMR<OutputIdentifier, _> =
 					PMMR::at(&mut self.output_pmmr_h.backend, self.output_pmmr_h.last_pos);
 				if let Some(hash) = output_pmmr.get_hash(pos) {
-					if hash == output_id.hash_with_index(pos) {
+					if hash == output_id.hash_with_index(pos - 1) {
 						Ok(hash)
 					} else {
 						Err(Error::TxHashSetErr(format!("txhashset hash mismatch")))
@@ -253,7 +253,7 @@ where
 	{
 		let commit_index = trees.commit_index.clone();
 
-		debug!(LOGGER, "Starting new txhashset extension.");
+		trace!(LOGGER, "Starting new txhashset extension.");
 		let mut extension = Extension::new(trees, commit_index);
 		res = inner(&mut extension);
 
@@ -273,12 +273,12 @@ where
 		}
 		Ok(r) => {
 			if rollback {
-				debug!(LOGGER, "Rollbacking txhashset extension.");
+				debug!(LOGGER, "Rollbacking txhashset extension. sizes {:?}", sizes);
 				trees.output_pmmr_h.backend.discard();
 				trees.rproof_pmmr_h.backend.discard();
 				trees.kernel_pmmr_h.backend.discard();
 			} else {
-				debug!(LOGGER, "Committing txhashset extension.");
+				debug!(LOGGER, "Committing txhashset extension. sizes {:?}", sizes);
 				trees.output_pmmr_h.backend.sync()?;
 				trees.rproof_pmmr_h.backend.sync()?;
 				trees.kernel_pmmr_h.backend.sync()?;
@@ -287,7 +287,7 @@ where
 				trees.kernel_pmmr_h.last_pos = sizes.2;
 			}
 
-			debug!(LOGGER, "TxHashSet extension done.");
+			trace!(LOGGER, "TxHashSet extension done.");
 			Ok(r)
 		}
 	}
@@ -386,7 +386,7 @@ impl<'a> Extension<'a> {
 		let commit = input.commitment();
 		let pos_res = self.get_output_pos(&commit);
 		if let Ok(pos) = pos_res {
-			let output_id_hash = OutputIdentifier::from_input(input).hash_with_index(pos);
+			let output_id_hash = OutputIdentifier::from_input(input).hash_with_index(pos - 1);
 			if let Some(read_hash) = self.output_pmmr.get_hash(pos) {
 				// check hash from pmmr matches hash from input (or corresponding output)
 				// if not then the input is not being honest about
@@ -398,7 +398,7 @@ impl<'a> Extension<'a> {
 					|| output_id_hash
 						!= read_elem
 							.expect("no output at position")
-							.hash_with_index(pos)
+							.hash_with_index(pos - 1)
 				{
 					return Err(Error::TxHashSetErr(format!("output pmmr hash mismatch")));
 				}
@@ -502,7 +502,7 @@ impl<'a> Extension<'a> {
 	pub fn rewind(&mut self, block_header: &BlockHeader) -> Result<(), Error> {
 		let hash = block_header.hash();
 		let height = block_header.height;
-		debug!(LOGGER, "Rewind to header {} at {}", hash, height);
+		debug!(LOGGER, "Rewind to header at {} [{}]", height, hash); // keep this
 
 		// rewind each MMR
 		let (out_pos_rew, kern_pos_rew) = self.commit_index.get_block_marker(&hash)?;
@@ -648,6 +648,11 @@ impl<'a> Extension<'a> {
 	/// Force the rollback of this extension, no matter the result
 	pub fn force_rollback(&mut self) {
 		self.rollback = true;
+	}
+
+	/// Cancel a previous rollback, to apply this extension
+	pub fn cancel_rollback(&mut self) {
+		self.rollback = false;
 	}
 
 	/// Dumps the output MMR.

@@ -45,6 +45,7 @@ fn peer_handshake() {
 		port: open_port(),
 		peers_allow: None,
 		peers_deny: None,
+		..p2p::P2PConfig::default()
 	};
 	let net_adapter = Arc::new(p2p::DummyAdapter {});
 	let server = Arc::new(
@@ -75,6 +76,8 @@ fn peer_handshake() {
 		&p2p::handshake::Handshake::new(Hash::from_vec(vec![]), p2p_conf.clone()),
 		net_adapter,
 	).unwrap();
+
+	assert!(peer.info.user_agent.ends_with(env!("CARGO_PKG_VERSION")));
 
 	peer.start(socket);
 	thread::sleep(time::Duration::from_secs(1));

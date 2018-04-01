@@ -98,7 +98,7 @@ pub enum ChainValidationMode {
 
 impl Default for ChainValidationMode {
 	fn default() -> ChainValidationMode {
-		ChainValidationMode::EveryBlock
+		ChainValidationMode::Disabled
 	}
 }
 
@@ -117,7 +117,7 @@ pub enum Seeding {
 
 impl Default for Seeding {
 	fn default() -> Seeding {
-		Seeding::None
+		Seeding::WebStatic
 	}
 }
 
