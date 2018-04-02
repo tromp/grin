@@ -118,7 +118,7 @@ pub fn peak_size(pidx: u64) -> u64 {
 //    2
 //   / \
 //  0   1  3
-// returns (0, 0, 0) on input 0
+// with 0b11 indicating presence of peaks of index 0 and 1.
 pub fn peak_map_size_height(mut pos: u64) -> (u64, u64, u64) {
         let mut peak_size = 1;
         let mut map_size  = 0;
@@ -145,7 +145,6 @@ impl Writeable for MountainProof {
 			[write_u64, self.pidx],
 			[write_u64, self.pos],
 			[write_fixed_bytes, &self.node],
-			[write_u64, self.path.len() as u64]
 		);
 
 		try!(self.path.write(writer));
@@ -168,7 +167,6 @@ impl Readable for MountainProof {
 		let mut path = Vec::with_capacity(pidx as usize);
 		for _ in 0..pidx {
 			let hash = Hash::read(reader)?;
-			let pos = reader.read_u64()?;
 			path.push(hash);
 		}
 
@@ -1212,6 +1210,20 @@ mod test {
 			}
 			usz
 		}
+	}
+
+	#[test]
+	fn test_peak_map() {
+		assert_eq!(peak_map_size_height(0), (0, 0, 0));
+		assert_eq!(peak_map_size_height(1), (1, j, 0));
+		assert_eq!(peak_map_size_height(2), (1, j, 1));
+		assert_eq!(peak_map_size_height(3), (2, 2, 0));
+		assert_eq!(peak_map_size_height(4), (3, 2, 0));
+		assert_eq!(peak_map_size_height(5), (3, 2, 1));
+		assert_eq!(peak_map_size_height(6), (3, 2, 2));
+		assert_eq!(peak_map_size_height(7), (4, 3, 0));
+		assert_eq!(peak_map_size_height(8), (5, 3, 0));
+		assert_eq!(peak_map_size_height(9), (5, 3, 1));
 	}
 
 	#[test]
