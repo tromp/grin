@@ -108,17 +108,17 @@ pub struct MountainProof {
 	pub path: Vec<Hash>,
 }
 
-// number of nodes in a mountain with given peak index
+/// number of nodes in a mountain with given peak index
 pub fn peak_size(pidx: u64) -> u64 {
 	(2 << pidx) - 1
 }
 
-// return (peak_map, peak_map_size, pos_height) of given node pos prior to its addition
-// Example: on input 4 returns (0b11, 2, 0) as mmr state before adding 4 was
-//    2
-//   / \
-//  0   1  3
-// with 0b11 indicating presence of peaks of index 0 and 1.
+/// return (peak_map, peak_map_size, pos_height) of given node pos prior to its addition
+/// Example: on input 4 returns (0b11, 2, 0) as mmr state before adding 4 was
+///    2
+///   / \
+///  0   1  3
+/// with 0b11 indicating presence of peaks of index 0 and 1.
 pub fn peak_map_size_height(mut pos: u64) -> (u64, u64, u64) {
         let mut peak_size = 1;
         let mut map_size  = 0;
@@ -127,7 +127,7 @@ pub fn peak_map_size_height(mut pos: u64) -> (u64, u64, u64) {
                 map_size += 1;
 	}
 	let mut bitmap = 0;
-	while peak_size > 0 {
+	while peak_size != 0 {
                 bitmap = bitmap << 1;
 		if pos >= peak_size {
 			pos -= peak_size;
@@ -144,7 +144,7 @@ impl Writeable for MountainProof {
 			writer,
 			[write_u64, self.pidx],
 			[write_u64, self.pos],
-			[write_fixed_bytes, &self.node],
+			[write_fixed_bytes, &self.node]
 		);
 
 		try!(self.path.write(writer));
@@ -176,6 +176,65 @@ impl Readable for MountainProof {
 			node,
 			path
 		})
+	}
+}
+
+impl Default for MountainProof {
+	fn default() -> MountainProof {
+		MountainProof::empty()
+	}
+}
+
+impl MountainProof {
+	/// The "empty" Mountain proof.
+	/// Basically some reasonable defaults. Will not verify successfully.
+	pub fn empty() -> MountainProof {
+		MountainProof {
+			pidx: 0,
+			pos: 0,
+			node: Hash::default(),
+			path: vec![],
+		}
+	}
+
+	/// Serialize the Mountain proof as a hex string (for api json endpoints)
+	pub fn to_hex(&self) -> String {
+		let mut vec = Vec::new();
+		ser::serialize(&mut vec, &self).expect("serialization failed");
+		util::to_hex(vec)
+	}
+
+	/// Convert hex string represenation back to a Mountain proof instance
+	pub fn from_hex(hex: &str) -> Result<MountainProof, String> {
+		let bytes = util::from_hex(hex.to_string()).unwrap();
+		let res = ser::deserialize(&mut &bytes[..])
+			.map_err(|_| format!("failed to deserialize a Mountain Proof"))?;
+		Ok(res)
+	}
+
+	/// Verify the Mountain proof.
+	/// We do this by verifying the folloiwing -
+	///  * inclusion of the node beneath a peak (via the Mountain path/branch of siblings)
+	pub fn verify(&self, node: Hash, peakhash: Hash) -> bool {
+		let (mut peak_map, map_size, mut height) = peak_map_size_height(self.pos);
+		if node != self.node || self.pidx >= map_size || height != 0 {
+			return false;
+		}
+		let mut hash = node;
+		let mut parent = self.pos;
+		for sibling in self.path.iter() {
+			// height of parent
+			height += 1;
+			if peak_map & 1 != 0 {
+				parent -= 1;
+				hash = (*sibling, hash).hash_with_index(parent);
+			} else {
+				parent -= 1 << height;
+				hash = (hash, *sibling).hash_with_index(parent);
+			}
+			peak_map >>= 1;
+		}
+		hash == peakhash
 	}
 }
 
@@ -902,7 +961,7 @@ pub fn peaks(num: u64) -> Vec<u64> {
 /// The number of leaves nodes in a MMR of the provided size. Uses peaks to
 /// get the positions of all full binary trees and uses the height of these
 pub fn n_leaves(mut sz: u64) -> u64 {
-	while bintree_postorder_height(sz + 1) > 0 {
+	while bintree_postorder_height(sz + 1) != 0 {
 		sz += 1;
 	}
 	peaks(sz)
