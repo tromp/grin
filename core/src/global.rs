@@ -16,13 +16,14 @@
 //! having to pass them all over the place, but aren't consensus values.
 //! should be used sparingly.
 
-use consensus::TargetError;
+use consensus::HeaderInfo;
 use consensus::{
 	BLOCK_TIME_SEC, COINBASE_MATURITY, CUT_THROUGH_HORIZON, DEFAULT_MIN_SIZESHIFT,
 	DIFFICULTY_ADJUST_WINDOW, EASINESS, INITIAL_DIFFICULTY, MEDIAN_TIME_WINDOW, PROOFSIZE,
 	REFERENCE_SIZESHIFT,
 };
-use pow::{self, CuckooContext, Difficulty, EdgeType, PoWContext};
+use pow::{self, CuckatooContext, EdgeType, PoWContext};
+
 /// An enum collecting sets of parameters used throughout the
 /// code wherever mining is needed. This should allow for
 /// different sets of parameters for different purposes,
@@ -39,7 +40,7 @@ pub const AUTOMATED_TESTING_MIN_SIZESHIFT: u8 = 10;
 pub const AUTOMATED_TESTING_PROOF_SIZE: usize = 4;
 
 /// User testing sizeshift
-pub const USER_TESTING_MIN_SIZESHIFT: u8 = 16;
+pub const USER_TESTING_MIN_SIZESHIFT: u8 = 19;
 
 /// User testing proof size
 pub const USER_TESTING_PROOF_SIZE: usize = 42;
@@ -69,6 +70,14 @@ pub const TESTNET2_INITIAL_DIFFICULTY: u64 = 1000;
 /// a 30x Cuckoo adjustment factor
 pub const TESTNET3_INITIAL_DIFFICULTY: u64 = 30000;
 
+/// Testnet 4 initial block difficulty
+pub const TESTNET4_INITIAL_DIFFICULTY: u64 = 1;
+
+/// Trigger compaction check on average every 1440 blocks (i.e. one day) for FAST_SYNC_NODE,
+/// roll the dice on every block to decide,
+/// all blocks lower than (BodyHead.height - CUT_THROUGH_HORIZON) will be removed.
+pub const COMPACTION_CHECK: u64 = 1440;
+
 /// Types of chain a server can run with, dictates the genesis block and
 /// and mining parameters used.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -83,13 +92,15 @@ pub enum ChainTypes {
 	Testnet2,
 	/// Third test network
 	Testnet3,
+	/// Fourth test network
+	Testnet4,
 	/// Main production network
 	Mainnet,
 }
 
 impl Default for ChainTypes {
 	fn default() -> ChainTypes {
-		ChainTypes::Testnet3
+		ChainTypes::Testnet4
 	}
 }
 
@@ -128,12 +139,12 @@ pub fn create_pow_context<T>(
 where
 	T: EdgeType,
 {
-	// Perform whatever tests, configuration etc are needed to determine desired context + edge size
-	// + params
-	// Hardcode to regular cuckoo for now
-	CuckooContext::<T>::new(edge_bits, proof_size, EASINESS, max_sols)
-	// Or switch to cuckatoo as follows:
-	// CuckatooContext::<T>::new(edge_bits, proof_size, easiness_pct, max_sols)
+	CuckatooContext::<T>::new(edge_bits, proof_size, EASINESS, max_sols)
+}
+
+/// Return the type of the pos
+pub fn pow_type() -> PoWContextTypes {
+	PoWContextTypes::Cuckatoo
 }
 
 /// The minimum acceptable sizeshift
@@ -193,6 +204,7 @@ pub fn initial_block_difficulty() -> u64 {
 		ChainTypes::Testnet1 => TESTING_INITIAL_DIFFICULTY,
 		ChainTypes::Testnet2 => TESTNET2_INITIAL_DIFFICULTY,
 		ChainTypes::Testnet3 => TESTNET3_INITIAL_DIFFICULTY,
+		ChainTypes::Testnet4 => TESTNET4_INITIAL_DIFFICULTY,
 		ChainTypes::Mainnet => INITIAL_DIFFICULTY,
 	}
 }
@@ -225,6 +237,7 @@ pub fn is_production_mode() -> bool {
 	ChainTypes::Testnet1 == *param_ref
 		|| ChainTypes::Testnet2 == *param_ref
 		|| ChainTypes::Testnet3 == *param_ref
+		|| ChainTypes::Testnet4 == *param_ref
 		|| ChainTypes::Mainnet == *param_ref
 }
 
@@ -248,14 +261,13 @@ pub fn get_genesis_nonce() -> u64 {
 /// vector and pads if needed (which will) only be needed for the first few
 /// blocks after genesis
 
-pub fn difficulty_data_to_vector<T>(cursor: T) -> Vec<Result<(u64, Difficulty), TargetError>>
+pub fn difficulty_data_to_vector<T>(cursor: T) -> Vec<HeaderInfo>
 where
-	T: IntoIterator<Item = Result<(u64, Difficulty), TargetError>>,
+	T: IntoIterator<Item = HeaderInfo>,
 {
 	// Convert iterator to vector, so we can append to it if necessary
 	let needed_block_count = (MEDIAN_TIME_WINDOW + DIFFICULTY_ADJUST_WINDOW) as usize;
-	let mut last_n: Vec<Result<(u64, Difficulty), TargetError>> =
-		cursor.into_iter().take(needed_block_count).collect();
+	let mut last_n: Vec<HeaderInfo> = cursor.into_iter().take(needed_block_count).collect();
 
 	// Sort blocks from earliest to latest (to keep conceptually easier)
 	last_n.reverse();
@@ -265,16 +277,17 @@ where
 	let block_count_difference = needed_block_count - last_n.len();
 	if block_count_difference > 0 {
 		// Collect any real data we have
-		let mut live_intervals: Vec<(u64, Difficulty)> = last_n
+		let mut live_intervals: Vec<HeaderInfo> = last_n
 			.iter()
-			.map(|b| (b.clone().unwrap().0, b.clone().unwrap().1))
+			.map(|b| HeaderInfo::from_ts_diff(b.timestamp, b.difficulty))
 			.collect();
 		for i in (1..live_intervals.len()).rev() {
 			// prevents issues with very fast automated test chains
-			if live_intervals[i - 1].0 > live_intervals[i].0 {
-				live_intervals[i].0 = 0;
+			if live_intervals[i - 1].timestamp > live_intervals[i].timestamp {
+				live_intervals[i].timestamp = 0;
 			} else {
-				live_intervals[i].0 = live_intervals[i].0 - live_intervals[i - 1].0;
+				live_intervals[i].timestamp =
+					live_intervals[i].timestamp - live_intervals[i - 1].timestamp;
 			}
 		}
 		// Remove genesis "interval"
@@ -282,16 +295,16 @@ where
 			live_intervals.remove(0);
 		} else {
 			//if it's just genesis, adjust the interval
-			live_intervals[0].0 = BLOCK_TIME_SEC;
+			live_intervals[0].timestamp = BLOCK_TIME_SEC;
 		}
 		let mut interval_index = live_intervals.len() - 1;
-		let mut last_ts = last_n.first().as_ref().unwrap().as_ref().unwrap().0;
-		let last_diff = live_intervals[live_intervals.len() - 1].1;
+		let mut last_ts = last_n.first().unwrap().timestamp;
+		let last_diff = live_intervals[live_intervals.len() - 1].difficulty;
 		// fill in simulated blocks with values from the previous real block
 
 		for _ in 0..block_count_difference {
-			last_ts = last_ts.saturating_sub(live_intervals[live_intervals.len() - 1].0);
-			last_n.insert(0, Ok((last_ts, last_diff.clone())));
+			last_ts = last_ts.saturating_sub(live_intervals[live_intervals.len() - 1].timestamp);
+			last_n.insert(0, HeaderInfo::from_ts_diff(last_ts, last_diff.clone()));
 			interval_index = match interval_index {
 				0 => live_intervals.len() - 1,
 				_ => interval_index - 1,
