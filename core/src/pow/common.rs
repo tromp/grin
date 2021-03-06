@@ -63,7 +63,12 @@ pub fn set_header_nonce(header: &[u8], nonce: Option<u32>) -> Result<[u64; 4], E
 		header.write_u32::<LittleEndian>(n)?;
 		create_siphash_keys(&header)
 	} else {
-		create_siphash_keys(&header)
+		let sk = create_siphash_keys(&header)?;
+		info!(
+			"k0 k1 k2 k3 {:x} {:x} {:x} {:x}",
+			sk[0], sk[1], sk[2], sk[3]
+		);
+		Ok(sk)
 	}
 }
 

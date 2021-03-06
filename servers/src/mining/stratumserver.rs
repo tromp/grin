@@ -344,6 +344,7 @@ impl Handler {
 			bh.pow.write_pre_pow(&mut writer).unwrap();
 		}
 		let pre_pow = header_buf.to_hex();
+		debug!("build_block_template pre_pow {}", pre_pow);
 		let current_state = self.current_state.read();
 		let job_template = JobTemplate {
 			height: bh.height,
@@ -464,6 +465,14 @@ impl Handler {
 						params.job_id,
 						res,
 					);
+				let mut header_buf = vec![];
+				{
+					let mut writer = ser::BinWriter::default(&mut header_buf);
+					b.header.write_pre_pow(&mut writer).unwrap();
+					b.header.pow.write_pre_pow(&mut writer).unwrap();
+				}
+				let pre_pow = header_buf.to_hex();
+				debug!("assumed block header pre_pow {}", pre_pow);
 				self.workers
 					.update_stats(worker_id, |worker_stats| worker_stats.num_rejected += 1);
 				return Err(RpcError::cannot_validate());
